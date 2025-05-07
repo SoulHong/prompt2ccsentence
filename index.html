@@ -48,7 +48,36 @@
       <h2 class="text-xl font-semibold mb-4">지문 입력</h2>
       <textarea id="textInput" class="resizable-textarea w-full p-2 border rounded-md mb-4" placeholder="지문을 입력하세요"></textarea>
 
-      <div class="flex justify-center">
+      <div class="mb-4">
+        <div class="flex items-center space-x-2 mb-2">
+          <label class="text-gray-700">텍스트 추출용</label>
+          <div class="relative">
+            <button id="imageUploadBtn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              이미지 업로드
+            </button>
+            <input type="file" id="imageInput" accept="image/*" class="hidden" />
+          </div>
+        </div>
+        <div id="imagePreviewContainer" class="hidden mb-2">
+          <div class="relative">
+            <img id="imagePreview" class="max-h-64 rounded-md border border-gray-300" />
+            <button id="removeImageBtn" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div id="ocrLoadingIndicator" class="hidden text-center py-2">
+          <div class="inline-block animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500"></div>
+          <p class="text-sm">이미지에서 텍스트 추출 중...</p>
+        </div>
+      </div>
+
+      <div class="flex justify-end">
         <button id="sendPrompt" class="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-md">전송</button>
       </div>
     </div>
@@ -88,6 +117,7 @@
 const SUPABASE_URL      = 'https://olqspvtevvyjgdiwcvtw.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9scXNwdnRldnZ5amdkaXdjdnR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYzODA0NzIsImV4cCI6MjA2MTk1NjQ3Mn0.uRlxgrv2Hkf5lM5u6YPYzjzesZaJscV-e1gybQjgwt0';
 const EDGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/claude-proxy`;
+const OCR_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/ocr-extract`;
 const AUTH_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/auth-user-info`;
 /* ────────────────────────────────────────────────────────────── */
 
@@ -99,6 +129,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const addCardBtn        = document.getElementById('addCard');
   const exportExcelBtn    = document.getElementById('exportExcel');
   const loadingIndicator  = document.getElementById('loadingIndicator');
+  const imageUploadBtn    = document.getElementById('imageUploadBtn');
+  const imageInput        = document.getElementById('imageInput');
+  const imagePreview      = document.getElementById('imagePreview');
+  const imagePreviewContainer = document.getElementById('imagePreviewContainer');
+  const removeImageBtn    = document.getElementById('removeImageBtn');
+  const ocrLoadingIndicator = document.getElementById('ocrLoadingIndicator');
 
   /* helper: add a row to the table */
   function addResultRow(sentence = '', translation = '') {
@@ -193,6 +229,59 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /* add empty card */
   addCardBtn.onclick = () => addResultRow();
+
+  /* Image upload and OCR functionality */
+  imageUploadBtn.onclick = () => imageInput.click();
+
+  imageInput.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Preview the image
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      imagePreview.src = e.target.result;
+      imagePreviewContainer.classList.remove('hidden');
+    };
+    reader.readAsDataURL(file);
+
+    // Extract text using OCR
+    ocrLoadingIndicator.classList.remove('hidden');
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const res = await fetch(OCR_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        },
+        body: formData
+      });
+
+      const data = await res.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      // Add extracted text to the text input
+      if (data.text) {
+        const currentText = textInput.value.trim();
+        textInput.value = currentText ? `${currentText}\n\n${data.text}` : data.text;
+      }
+    } catch (err) {
+      console.error('OCR Error:', err);
+      alert(`OCR 오류: ${err.message}`);
+    } finally {
+      ocrLoadingIndicator.classList.add('hidden');
+    }
+  };
+
+  removeImageBtn.onclick = () => {
+    imageInput.value = '';
+    imagePreview.src = '';
+    imagePreviewContainer.classList.add('hidden');
+  };
 
   /* export to Excel */
   exportExcelBtn.onclick = () => {
